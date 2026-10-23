@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Constant Hash</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Work+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #eef2f4;
+    --surface: #ffffff;
+    --ink: #14232e;
+    --muted: #5b6b77;
+    --line: #cdd7dd;
+    --accent: #1f5f8b;
+    --accent-ink: #ffffff;
+    --digest-bg: #14232e;
+    --digest-ink: #e8f1f6;
+    --error: #a3361f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1a22;
+      --surface: #16252f;
+      --ink: #e8f1f6;
+      --muted: #93a5b1;
+      --line: #2a3d4a;
+      --accent: #6db3e0;
+      --accent-ink: #0f1a22;
+      --digest-bg: #0a1319;
+      --digest-ink: #e8f1f6;
+      --error: #ff9d85;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Work Sans", system-ui, sans-serif;
+    line-height: 1.55;
+    padding: 2.5rem 1.25rem 4rem;
+  }
+  main { max-width: 42rem; margin: 0 auto; }
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(2.2rem, 7vw, 3.4rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.75rem;
+  }
+  .lede { color: var(--muted); max-width: 34rem; margin: 0 0 2rem; }
+  label { display: block; font-weight: 500; margin-bottom: 0.4rem; }
+  textarea {
+    width: 100%;
+    min-height: 8rem;
+    padding: 0.85rem 1rem;
+    font: inherit;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    resize: vertical;
+  }
+  textarea:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button {
+    margin-top: 0.9rem;
+    font: inherit;
+    font-weight: 500;
+    padding: 0.7rem 1.4rem;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  button[disabled] { opacity: 0.6; cursor: progress; }
+  .digest-wrap { margin-top: 2rem; }
+  .digest {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem 1rem;
+    padding: 1.1rem 1.25rem;
+    background: var(--digest-bg);
+    color: var(--digest-ink);
+    border-radius: 6px;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 1.05rem;
+    min-height: 4.2rem;
+  }
+  .digest.empty { display: block; color: var(--muted); font-family: inherit; font-size: 0.95rem; }
+  @media (max-width: 30rem) { .digest { grid-template-columns: repeat(2, 1fr); } }
+  .row { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.6rem; }
+  .copy { margin: 0; padding: 0.4rem 0.9rem; background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .error { color: var(--error); margin-top: 0.75rem; min-height: 1.4em; }
+  details { margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+  summary { cursor: pointer; font-weight: 500; }
+  .state { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.92rem; color: var(--muted); }
+  .note { margin-top: 2.5rem; font-size: 0.9rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Hash text with the constants of physics</h1>
+  <p class="lede">The starting values come from the square roots of eight physical constants, including Planck's constant and the elementary charge. Enter text to get a 256-bit digest.</p>
+
+  <label for="msg">Text to hash</label>
+  <textarea id="msg" placeholder="Type or paste text"></textarea>
+  <button id="go" type="button">Compute digest</button>
+  <div class="error" id="err" role="alert"></div>
+
+  <div class="digest-wrap">
+    <div class="digest empty" id="digest" aria-live="polite">Your digest will appear here.</div>
+    <div class="row">
+      <button class="copy" id="copy" type="button" hidden>Copy digest</button>
+    </div>
+  </div>
+
+  <details id="stateBox">
+    <summary>Initial state (H0 to H7)</summary>
+    <p class="state" id="state">Loading…</p>
+  </details>
+
+  <p class="note">This is an experimental design. Its security has not been analyzed, so do not use it to protect passwords or sensitive data.</p>
+</main>
+
+<script>
+  const msg = document.getElementById("msg");
+  const go = document.getElementById("go");
+  const err = document.getElementById("err");
+  const digestEl = document.getElementById("digest");
+  const copyBtn = document.getElementById("copy");
+  let current = "";
+
+  async function compute() {
+    err.textContent = "";
+    go.disabled = true;
+    try {
+      const res = await fetch("/api/hash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg.value })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Request failed");
+      current = data.digest;
+      digestEl.className = "digest";
+      digestEl.innerHTML = current.match(/.{8}/g).map(function (p) { return "<span>" + p + "</span>"; }).join("");
+      copyBtn.hidden = false;
+    } catch (e) {
+      err.textContent = "Could not compute the digest: " + e.message;
+    } finally {
+      go.disabled = false;
+    }
+  }
+
+  go.addEventListener("click", compute);
+  msg.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) compute();
+  });
+  copyBtn.addEventListener("click", async function () {
+    try {
+      await navigator.clipboard.writeText(current);
+      copyBtn.textContent = "Copied";
+      setTimeout(function () { copyBtn.textContent = "Copy digest"; }, 1500);
+    } catch (e) {
+      err.textContent = "Copy failed. Select the digest and copy it manually.";
+    }
+  });
+
+  fetch("/api/state").then(function (r) { return r.json(); }).then(function (d) {
+    document.getElementById("state").innerHTML =
+      d.initial_state.map(function (v, i) { return "H" + i + " = 0x" + v; }).join("<br>");
+  }).catch(function () {
+    document.getElementById("state").textContent = "Unavailable.";
+  });
+</script>
+</body>
+</html>
